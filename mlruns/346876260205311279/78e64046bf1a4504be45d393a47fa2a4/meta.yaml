@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/78e64046bf1a4504be45d393a47fa2a4/artifacts
+end_time: 1789491977387
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 78e64046bf1a4504be45d393a47fa2a4
+run_name: learned-skunk-426
+run_uuid: 78e64046bf1a4504be45d393a47fa2a4
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491977268
+status: 3
+tags: []
+user_id: death-kid

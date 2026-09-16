@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/39f90d621623485ca26645dbc1392cdd/artifacts
+end_time: 1789491784732
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 39f90d621623485ca26645dbc1392cdd
+run_name: bouncy-grouse-254
+run_uuid: 39f90d621623485ca26645dbc1392cdd
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491784616
+status: 3
+tags: []
+user_id: death-kid

@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/e5253d2f24ff4a2b81329a9051a4cbe9/artifacts
+end_time: 1789491645913
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: e5253d2f24ff4a2b81329a9051a4cbe9
+run_name: suave-squid-688
+run_uuid: e5253d2f24ff4a2b81329a9051a4cbe9
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491643958
+status: 4
+tags: []
+user_id: death-kid

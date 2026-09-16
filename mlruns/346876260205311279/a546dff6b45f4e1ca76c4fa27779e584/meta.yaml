@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/a546dff6b45f4e1ca76c4fa27779e584/artifacts
+end_time: 1789494985549
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: a546dff6b45f4e1ca76c4fa27779e584
+run_name: intrigued-crab-303
+run_uuid: a546dff6b45f4e1ca76c4fa27779e584
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789494985451
+status: 3
+tags: []
+user_id: death-kid

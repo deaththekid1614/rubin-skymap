@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/15e8f4d6d17a494a8d30211acb87368a/artifacts
+end_time: 1789491972501
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 15e8f4d6d17a494a8d30211acb87368a
+run_name: bustling-skink-511
+run_uuid: 15e8f4d6d17a494a8d30211acb87368a
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491972386
+status: 3
+tags: []
+user_id: death-kid

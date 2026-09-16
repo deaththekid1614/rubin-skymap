@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rubin-skymap — Live Transient Classifier</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════ HEADER ═══════════════════════ -->
+  <header id="app-header">
+    <div id="header-brand">
+      <svg id="logo-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="12" cy="12" r="10"/>
+        <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-30 12 12)"/>
+        <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+      </svg>
+      <span id="app-title">rubin-skymap</span>
+      <span id="app-subtitle">Live Transient Classification Broker</span>
+    </div>
+    <div id="header-stats">
+      <div class="stat-chip" id="chip-total">
+        <span class="stat-chip-label">ALERTS</span>
+        <span class="stat-chip-value" id="stat-total">0</span>
+      </div>
+      <div class="stat-chip" id="chip-rate">
+        <span class="stat-chip-label">RATE</span>
+        <span class="stat-chip-value" id="stat-rate">0/min</span>
+      </div>
+      <div class="stat-chip" id="chip-top">
+        <span class="stat-chip-label">TOP CLASS</span>
+        <span class="stat-chip-value" id="stat-top">—</span>
+      </div>
+    </div>
+    <div id="header-right">
+      <span id="conn-status" class="conn-closed">
+        <span class="conn-dot"></span>
+        <span id="conn-label">Disconnected</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════ CLASS LEGEND BAR ═══════════════════════ -->
+  <div id="legend-bar">
+    <span class="legend-label">FILTER:</span>
+    <label class="legend-item" data-class="SN Ia">
+      <input type="checkbox" data-class="SN Ia" checked />
+      <span class="legend-swatch" style="background:#ff6b6b"></span>SN Ia
+      <span class="legend-count" id="count-SN_Ia">0</span>
+    </label>
+    <label class="legend-item" data-class="SN II">
+      <input type="checkbox" data-class="SN II" checked />
+      <span class="legend-swatch" style="background:#ffa94d"></span>SN II
+      <span class="legend-count" id="count-SN_II">0</span>
+    </label>
+    <label class="legend-item" data-class="SN Ibc">
+      <input type="checkbox" data-class="SN Ibc" checked />
+      <span class="legend-swatch" style="background:#ffd43b"></span>SN Ibc
+      <span class="legend-count" id="count-SN_Ibc">0</span>
+    </label>
+    <label class="legend-item" data-class="SLSN">
+      <input type="checkbox" data-class="SLSN" checked />
+      <span class="legend-swatch" style="background:#69db7c"></span>SLSN
+      <span class="legend-count" id="count-SLSN">0</span>
+    </label>
+    <label class="legend-item" data-class="Kilonova">
+      <input type="checkbox" data-class="Kilonova" checked />
+      <span class="legend-swatch" style="background:#4dabf7"></span>Kilonova
+      <span class="legend-count" id="count-Kilonova">0</span>
+    </label>
+    <label class="legend-item" data-class="AGN">
+      <input type="checkbox" data-class="AGN" checked />
+      <span class="legend-swatch" style="background:#b197fc"></span>AGN
+      <span class="legend-count" id="count-AGN">0</span>
+    </label>
+    <label class="legend-item" data-class="RRL">
+      <input type="checkbox" data-class="RRL" checked />
+      <span class="legend-swatch" style="background:#f783ac"></span>RRL
+      <span class="legend-count" id="count-RRL">0</span>
+    </label>
+    <label class="legend-item" data-class="Other">
+      <input type="checkbox" data-class="Other" checked />
+      <span class="legend-swatch" style="background:#868e96"></span>Other
+      <span class="legend-count" id="count-Other">0</span>
+    </label>
+  </div>
+
+  <!-- ═══════════════════════ MAIN LAYOUT ═══════════════════════ -->
+  <div id="main-layout">
+
+    <!-- ──────── SKY MAP ──────── -->
+    <div id="map-container">
+      <canvas id="skymap"></canvas>
+      <div id="map-tooltip"></div>
+      <div id="map-coords"></div>
+    </div>
+
+    <!-- ──────── SIDEBAR ──────── -->
+    <div id="sidebar">
+
+      <!-- Live alert feed -->
+      <div id="feed-panel">
+        <div class="panel-header">
+          <span>Live Alerts</span>
+          <span id="feed-badge">0</span>
+        </div>
+        <div id="feed-search-wrap">
+          <input id="feed-search" type="text" placeholder="Filter by object ID or class…" />
+        </div>
+        <ul id="alert-list"></ul>
+      </div>
+
+      <!-- Detail / inspect panel -->
+      <div id="detail-panel">
+        <div class="panel-header">
+          <span id="detail-header-label">Inspector</span>
+        </div>
+        <div id="detail-content">
+
+          <!-- Empty state -->
+          <div id="detail-empty">
+            <svg viewBox="0 0 48 48" width="36" height="36" fill="none" stroke="#3a4f62" stroke-width="1.5">
+              <circle cx="24" cy="24" r="20"/>
+              <circle cx="24" cy="24" r="6"/>
+              <line x1="24" y1="4"  x2="24" y2="14"/>
+              <line x1="24" y1="34" x2="24" y2="44"/>
+              <line x1="4"  y1="24" x2="14" y2="24"/>
+              <line x1="34" y1="24" x2="44" y2="24"/>
+            </svg>
+            <p>Click a dot on the map<br/>or a row in the feed</p>
+          </div>
+
+          <!-- Populated state -->
+          <div id="detail-body" style="display:none">
+
+            <!-- Identity row -->
+            <div id="detail-id-row">
+              <span id="detail-class-badge"></span>
+              <span id="detail-oid"></span>
+            </div>
+
+            <!-- Inline class explanation -->
+            <div id="class-explain-box"></div>
+
+            <!-- Coordinate + metadata row -->
+            <div class="detail-kv-grid">
+              <div class="kv"><span class="kv-k">RA</span><span class="kv-v" id="dv-ra">—</span></div>
+              <div class="kv"><span class="kv-k">Dec</span><span class="kv-v" id="dv-dec">—</span></div>
+              <div class="kv"><span class="kv-k">Confidence</span><span class="kv-v" id="dv-prob">—</span></div>
+              <div class="kv"><span class="kv-k">Time</span><span class="kv-v" id="dv-time">—</span></div>
+            </div>
+
+            <!-- Probability bar chart -->
+            <div class="detail-section-title">
+              Class Probabilities
+              <span class="section-hint">model score for each transient type</span>
+            </div>
+            <div id="prob-bars"></div>
+
+            <!-- SHAP -->
+            <div class="detail-section-title">
+              SHAP Feature Importance
+              <span class="section-hint">red = pushed toward class · blue = pushed away</span>
+            </div>
+            <canvas id="shap-chart"></canvas>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

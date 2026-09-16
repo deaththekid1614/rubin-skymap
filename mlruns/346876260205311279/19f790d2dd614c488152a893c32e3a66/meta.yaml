@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/19f790d2dd614c488152a893c32e3a66/artifacts
+end_time: 1789491789850
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 19f790d2dd614c488152a893c32e3a66
+run_name: bald-bug-886
+run_uuid: 19f790d2dd614c488152a893c32e3a66
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491789750
+status: 3
+tags: []
+user_id: death-kid

@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/01ba5eae0a9849c6a9aae3c708be6d62/artifacts
+end_time: 1789491978149
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 01ba5eae0a9849c6a9aae3c708be6d62
+run_name: useful-crane-824
+run_uuid: 01ba5eae0a9849c6a9aae3c708be6d62
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491978019
+status: 3
+tags: []
+user_id: death-kid

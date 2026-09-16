@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./rubin_skymap.db:/app/rubin_skymap.db
+    environment:
+      RUBIN_SKYMAP_ENV: dev
+    restart: unless-stopped

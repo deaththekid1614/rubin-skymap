@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/08dcee2cee07465eb2289293f37cadf5/artifacts
+end_time: 1789491727909
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 08dcee2cee07465eb2289293f37cadf5
+run_name: smiling-crane-846
+run_uuid: 08dcee2cee07465eb2289293f37cadf5
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491727802
+status: 3
+tags: []
+user_id: death-kid

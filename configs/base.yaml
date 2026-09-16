@@ -1,0 +1,60 @@
+app:
+  name: rubin-skymap
+  log_level: INFO
+
+ingest:
+  # ── Source mode ─────────────────────────────────────────────────────────
+  # "alerce"  → real ZTF data via ALeRCE public API (recommended, no auth)
+  # "fink"    → real ZTF data via Fink broker REST API
+  # "mock"    → offline synthetic data (for development / demo)
+  mode: alerce
+  poll_interval_sec: 8.0   # seconds between poll cycles (be polite to APIs)
+  batch_size: 10
+  dedupe: true
+
+  alerce:
+    api_base: https://api.alerce.online/ztf/v1
+    timeout_sec: 20.0
+    retries: 3
+    backoff_base_sec: 2.0
+    min_detections: 5
+    min_probability: 0.0
+
+  fink:
+    api_base: https://api.fink-portal.org
+    timeout_sec: 15.0
+    retries: 3
+    backoff_base_sec: 1.5
+    classes:
+      - "SN Ia"
+      - "SN II"
+      - "SN Ibc"
+      - "SLSN"
+      - "Kilonova"
+      - "AGN"
+      - "RRL"
+
+model:
+  model_path: models/lgbm_v1.txt
+  label_map_path: models/label_map.json
+  num_leaves: 31
+  learning_rate: 0.05
+  n_estimators: 300
+  random_state: 42
+
+db:
+  url: "sqlite:///./rubin_skymap.db"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "*"
+
+data:
+  synthetic_n: 2000
+  raw_dir: data/raw
+  processed_dir: data/processed
+  parquet_synthetic: data/raw/plasticc_synthetic.parquet
+  parquet_train: data/processed/plasticc_train.parquet
+  zenodo_base: https://zenodo.org/records/2539456/files

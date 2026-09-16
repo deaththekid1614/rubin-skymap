@@ -1,0 +1,22 @@
+{
+  "int_to_label": {
+    "0": "SN Ia",
+    "1": "SN II",
+    "2": "SN Ibc",
+    "3": "SLSN",
+    "4": "Kilonova",
+    "5": "AGN",
+    "6": "RRL",
+    "7": "Other"
+  },
+  "label_to_int": {
+    "SN Ia": 0,
+    "SN II": 1,
+    "SN Ibc": 2,
+    "SLSN": 3,
+    "Kilonova": 4,
+    "AGN": 5,
+    "RRL": 6,
+    "Other": 7
+  }
+}

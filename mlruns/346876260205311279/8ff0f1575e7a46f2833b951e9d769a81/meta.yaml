@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/8ff0f1575e7a46f2833b951e9d769a81/artifacts
+end_time: 1789491919040
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: 8ff0f1575e7a46f2833b951e9d769a81
+run_name: orderly-shrimp-561
+run_uuid: 8ff0f1575e7a46f2833b951e9d769a81
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491917887
+status: 3
+tags: []
+user_id: death-kid

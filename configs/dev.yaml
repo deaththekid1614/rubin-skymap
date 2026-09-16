@@ -1,0 +1,14 @@
+app:
+  log_level: INFO
+
+ingest:
+  # ── Switch source here ───────────────────────────────────────────────────
+  # "alerce"  → real ZTF data via ALeRCE (works, no auth, recommended)
+  # "fink"    → real ZTF data via Fink broker (may be blocked by firewalls)
+  # "mock"    → offline synthetic data
+  mode: alerce
+  poll_interval_sec: 8.0
+  batch_size: 10
+
+db:
+  url: "sqlite:///./rubin_skymap.db"

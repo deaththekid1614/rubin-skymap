@@ -1,0 +1,15 @@
+artifact_uri: file:///home/death-kid/IDE/rubin-skymap/mlruns/346876260205311279/f9c6af2c3b1243a4b020c85047f50638/artifacts
+end_time: 1789491790562
+entry_point_name: ''
+experiment_id: '346876260205311279'
+lifecycle_stage: active
+run_id: f9c6af2c3b1243a4b020c85047f50638
+run_name: trusting-hog-200
+run_uuid: f9c6af2c3b1243a4b020c85047f50638
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789491790455
+status: 3
+tags: []
+user_id: death-kid
