@@ -87,19 +87,19 @@ bold "Starting API server on http://localhost:$PORT …"
 API_PID=$!
 echo "  API PID: $API_PID"
 
-# Wait for the server to be ready
+# Wait for the server to be ready (up to 60 s — SHAP TreeExplainer can be slow)
 echo -n "  Waiting for server"
-for i in $(seq 1 20); do
-  sleep 0.5
+for i in $(seq 1 60); do
+  sleep 1
   if curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1; then
     echo ""
     green "✓ API server ready"
     break
   fi
   echo -n "."
-  if [[ $i -eq 20 ]]; then
+  if [[ $i -eq 60 ]]; then
     echo ""
-    red "ERROR: API server did not start within 10 s."
+    red "ERROR: API server did not start within 60 s."
     kill "$API_PID" 2>/dev/null || true
     exit 1
   fi

@@ -1,63 +1,99 @@
-# 🔭 rubin-skymap
+# rubin-skymap
 
-> **Real-time astronomical transient classification broker — live ZTF alerts on an equatorial sky-map dashboard.**
+**A real-time transient classification broker — live ZTF alerts classified by machine learning and streamed onto an interactive equatorial sky map.**
 
-Pulls live [ZTF](https://www.ztf.caltech.edu/) alerts from the [ALeRCE](https://alerce.online/) or [Fink](https://api.fink-portal.org) broker APIs, extracts photometric light-curve features, classifies each transient with a **LightGBM** model, explains predictions with **SHAP**, and streams everything to a live sky-map dashboard over WebSocket.
-
----
-
-## ✨ Features
-
-- 🌌 **Live equatorial sky-map** — real ZTF alert dots plotted by RA/Dec, coloured by class
-- ⚡ **Real-time WebSocket streaming** — new alerts appear on the map within seconds
-- 🤖 **LightGBM classifier** — 8-class transient taxonomy (SN Ia, SN II, SN Ibc, SLSN, Kilonova, AGN, RRL, Other)
-- 🔍 **SHAP explanations** — top-5 feature contributions shown per alert in the inspector
-- 🌐 **Dual data sources** — ALeRCE REST API (recommended, no auth) or Fink broker REST API
-- 📊 **MLflow tracking** — every training run logged with metrics and artifacts
-- 📉 **Drift monitoring** — Kolmogorov–Smirnov scoring against training feature distribution
-- 🗃️ **SQLite persistence** — all predictions stored with features and SHAP JSON
-- 🐳 **Docker-ready** — single `docker compose up --build` for the API server
+Rubin-skymap pulls live astronomical alerts from the ZTF (Zwicky Transient Facility) survey, automatically extracts light-curve features, classifies each event into one of eight transient categories using a LightGBM model, explains the prediction with SHAP, and pushes everything to a browser dashboard over WebSocket — all within a few seconds of the original detection.
 
 ---
 
-## 🏗️ Architecture
+## What it does, in plain language
 
-```mermaid
-flowchart LR
-    A["🌐 Alert Source\nALeRCE · Fink · Mock"] --> B["⚙️ Consumer\nscripts/run_consumer.py"]
-    B --> C["📐 Feature Extraction\nrubin_skymap.features.lightcurve"]
-    C --> D["🤖 LightGBM Classifier\nrubin_skymap.models.predict"]
-    D --> E["🔍 SHAP Explainer\nrubin_skymap.models.explain"]
-    E --> F[("🗃️ SQLite DB\nrubin_skymap.db")]
-    F --> G["🚀 FastAPI\nREST + WebSocket"]
-    G --> H["🌌 Vanilla JS Dashboard\nCanvas sky map"]
-    B -- "asyncio bus" --> G
+Every few seconds, a real telescope (ZTF) detects something in the sky that changed brightness. It could be a supernova, a variable star, a black-hole flare, or something completely unknown. This project:
+
+1. **Fetches those alerts** from the ALeRCE or Fink broker APIs (or generates synthetic ones offline).
+2. **Extracts 15 features** from the light curve — how fast it rose, how bright it got, how symmetric the shape is, etc.
+3. **Classifies it** with a trained LightGBM model into one of 8 categories (SN Ia, SN II, SN Ibc, SLSN, Kilonova, AGN, RRL, Other).
+4. **Explains the prediction** using SHAP — showing which features pushed the model toward or away from that class.
+5. **Stores everything** in a SQLite database and broadcasts it over WebSocket.
+6. **Displays it on a live sky map** — a dark equatorial canvas with ~9,000 real Hipparcos stars, 88 IAU constellation lines, the Milky Way band, and coloured dots for each classified alert.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        DATA PIPELINE                            │
+│                                                                  │
+│  ZTF Alert Source          Consumer Process                      │
+│  ┌──────────────┐         ┌─────────────────────────────────┐   │
+│  │ ALeRCE API   │──poll──▶│ 1. Fetch alert batch            │   │
+│  │ Fink API     │         │ 2. Extract 15 light-curve       │   │
+│  │ Mock/Offline │         │    features (NumPy / pandas)    │   │
+│  └──────────────┘         │ 3. LightGBM classify → 8 classes│   │
+│                           │ 4. SHAP explain top-5 features  │   │
+│                           │ 5. Save to SQLite DB            │   │
+│                           │ 6. Push to asyncio broadcast bus│   │
+│                           └──────────────┬──────────────────┘   │
+└──────────────────────────────────────────│──────────────────────┘
+                                           │
+┌──────────────────────────────────────────│──────────────────────┐
+│                        API SERVER        │                       │
+│                                          ▼                       │
+│  FastAPI (Uvicorn)    ┌──────────────────────────────────────┐   │
+│                       │ REST endpoints:                       │   │
+│                       │  GET  /api/alerts    — recent alerts  │   │
+│                       │  GET  /api/stats     — counts, drift  │   │
+│                       │  POST /api/predict   — single predict │   │
+│                       │  WS   /ws/alerts     — live stream    │   │
+│                       │  GET  /              — dashboard HTML  │   │
+│                       │  GET  /static/*      — JS / CSS / data│   │
+│                       └──────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                                           │
+┌──────────────────────────────────────────│──────────────────────┐
+│                     BROWSER DASHBOARD    │                       │
+│                                          ▼                       │
+│  Vanilla JS + HTML5 Canvas                                       │
+│                                                                  │
+│  ┌──────────────────────────────┐  ┌──────────────────────────┐ │
+│  │   Sky Map Canvas             │  │   Sidebar                │ │
+│  │                              │  │                          │ │
+│  │  Layers (back → front):      │  │  • Live Alerts feed      │ │
+│  │  1. Dark sky background      │  │  • Search / filter       │ │
+│  │  2. Milky Way band           │  │  • Inspector panel:      │ │
+│  │  3. RA/Dec grid              │  │    – RA, Dec, confidence │ │
+│  │  4. ~9,000 Hipparcos stars   │  │    – Class probabilities │ │
+│  │  5. 88 constellation lines   │  │    – SHAP bar chart      │ │
+│  │  6. Alert dots (by class)    │  │    – Class explanation   │ │
+│  │  7. Selection highlight      │  │                          │ │
+│  └──────────────────────────────┘  └──────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📦 Tech Stack
+## Tech Stack
 
-| Layer | Technology |
+| Layer | What it uses |
 |---|---|
-| Alert ingestion | ALeRCE REST API · Fink REST API · MockSource |
-| Feature engineering | NumPy · pandas (15 photometric features) |
+| Alert ingestion | ALeRCE ZTF REST API · Fink broker REST API · MockSource (offline) |
+| Feature engineering | NumPy · pandas — 15 photometric light-curve features |
 | Classifier | LightGBM 4.3 · scikit-learn |
-| Explainability | SHAP 0.45 |
+| Explainability | SHAP 0.45 — top-5 feature contributions per prediction |
 | API server | FastAPI 0.111 · Uvicorn · WebSocket |
 | Database | SQLite · SQLAlchemy 2.0 |
-| MLOps | MLflow 2.14 |
-| Frontend | Vanilla HTML5 Canvas + CSS + JS |
+| Frontend | Pure vanilla HTML5 Canvas + CSS + JavaScript — no frameworks |
 | Config | PyYAML · python-dotenv |
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 ### Prerequisites
 
 - Python **3.11.9**
-- Internet connection (for ALeRCE live data) — or run with `--synthetic` for fully offline
+- Internet connection for live ZTF data (or use `--synthetic` to run fully offline)
 
 ### 1 · Install
 
@@ -71,126 +107,106 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2 · One-command launch (recommended)
+### 2 · Generate sky map assets (one time)
+
+This downloads ~580 KB of star and constellation data for the sky map background:
+
+```bash
+python scripts/build_sky_assets.py
+```
+
+### 3 · Launch everything
 
 ```bash
 ./run.sh
 ```
 
-`run.sh` handles everything automatically:
-- Detects if a trained model exists; if not, generates synthetic data and trains one
-- Starts the API server on `http://localhost:8000`
-- Starts the alert consumer (pulls live ZTF data from ALeRCE)
+This single command:
+- Checks if a trained model exists; trains one on synthetic data if not
+- Starts the API server at `http://localhost:8000`
+- Starts the alert consumer (pulls live ZTF data from ALeRCE every 8 s)
 - Opens the dashboard in your browser
 
 ```bash
-./run.sh --api-only    # start API server only, skip consumer
-./run.sh --stop        # kill all rubin-skymap processes
+./run.sh --api-only    # API server only, skip the consumer
+./run.sh --stop        # kill all running rubin-skymap processes
 ```
 
-### 3 · Manual launch (step by step)
+### 4 · Manual step-by-step (if you prefer)
 
 ```bash
-# Step 1 — Generate synthetic training data (~2000 objects, no network)
+# Generate ~2,000 synthetic training objects (no network needed)
 python scripts/download_plasticc.py --synthetic
 
-# Step 2 — Train the LightGBM classifier  →  models/lgbm_v1.txt
+# Train the LightGBM classifier → saves to models/lgbm_v1.txt
 python scripts/train_model.py
 
-# Step 3 — Start the API server
+# Start the API server
 uvicorn rubin_skymap.serving.api:app --host 0.0.0.0 --port 8000
 
-# Step 4 — In a second terminal, start the alert consumer
+# In a second terminal: start the alert consumer
 python scripts/run_consumer.py
 ```
 
-Then open **http://localhost:8000** 🎉
+Open **http://localhost:8000** in your browser.
 
 ---
 
-## 🌐 Data Sources
+## Dashboard
 
-### ALeRCE (default — no auth required ✅)
+The dashboard is a single dark-theme HTML page served by FastAPI. Here is what each part does:
 
-The consumer polls the [ALeRCE ZTF REST API](https://api.alerce.online/ztf/v1) by default.
-It cycles through `SN → AGN → VS` classes on each poll cycle so the dashboard receives a
-diverse mix of real transients.
-
-```yaml
-# configs/dev.yaml
-ingest:
-  mode: alerce          # ← default
-  poll_interval_sec: 8.0
-  batch_size: 10
-```
-
-### Fink Broker (alternative)
-
-```yaml
-# configs/dev.yaml
-ingest:
-  mode: fink
-```
-
-Optionally set credentials in `.env` (copy `.env.example`):
-
-```env
-FINK_USER=your_username
-FINK_PASSWORD=your_password
-```
-
-> Fink credentials are only required for private streams. The public REST API works without them.
-
-### Mock / Offline
-
-```yaml
-ingest:
-  mode: mock
-```
-
-Generates parametric synthetic light curves locally — no network needed. Useful for development and demos.
-
----
-
-## 🎓 Training on Real PLAsTiCC Data
-
-For a production-quality model, train on the real [PLAsTiCC](https://plasticc.org/) dataset from Zenodo:
-
-```bash
-# Download (~500 MB) and convert to parquet
-python scripts/download_plasticc.py --real
-
-# Retrain on the real data
-python scripts/train_model.py --data data/processed/plasticc_train.parquet
-```
-
-Raw files are saved to `data/raw/zenodo/`.  The processed parquet lands at `data/processed/plasticc_train.parquet`.
-
----
-
-## 🗺️ Dashboard Guide
-
-| Element | Description |
-|---|---|
-| 🔵 Sky-map dots | Each dot is a classified ZTF alert, coloured by transient class |
-| ⚡ Live Alerts sidebar | New alerts stream in real time over WebSocket |
-| 🔍 Inspector panel | Click any dot or sidebar row — shows RA/Dec, confidence, SHAP top-5 |
-| 🏷️ Class filter bar | Toggle individual classes on/off on the map and list |
-| 🟢 / 🔴 Status indicator | Green = live WebSocket connected · Red = reconnecting |
-
----
-
-## 🔌 API Reference
-
-| Method | Endpoint | Description |
+| Part | What you see | What it means |
 |---|---|---|
-| `GET` | `/health` | Health check → `{"status": "ok"}` |
-| `GET` | `/api/alerts?limit=200` | Recent predictions from DB (newest first) |
-| `GET` | `/api/stats` | Total count, per-class breakdown, drift info |
-| `POST` | `/api/predict` | Run inference on a single alert (JSON body) |
-| `WS` | `/ws/alerts` | WebSocket stream — new prediction per message |
+| **Header** | App name, alert count, rate, top class, UTC clock | Live summary of all classified alerts so far |
+| **Legend bar** | Coloured class filters + sky layer toggles | Click a class to hide/show it on the map and list |
+| **Sky map** | Dark canvas with stars, constellations, alert dots | Equatorial projection — RA on X axis, Dec on Y axis |
+| **Alert dot** | Coloured circle on the map | One classified ZTF alert. Colour = predicted class |
+| **Live Alerts panel** | Scrolling list of recent alerts | Streams in real time over WebSocket |
+| **Inspector panel** | Shown when you click a dot or list row | Full details: coordinates, model confidence, probability bars, SHAP chart |
+| **Status indicator** | Green = connected, Red = reconnecting | WebSocket health — auto-reconnects with backoff |
 
-### Example: POST /api/predict
+### Sky layer toggles
+
+| Toggle | What it controls |
+|---|---|
+| **Milky Way** | Soft diffuse band showing the galactic plane |
+| **Stars** | ~9,000 Hipparcos background stars, sized by visual magnitude |
+| **Constellations** | 88 IAU constellation line segments |
+| **Labels** | Constellation name text at each constellation's centroid |
+
+---
+
+## Transient Classes
+
+The model classifies each alert into one of these eight categories:
+
+| Class | Colour | What it is |
+|---|---|---|
+| **SN Ia** | Red | Type Ia supernova — a white dwarf explodes. The "standard candle" used to measure dark energy and the expansion of the universe. Light curve rises over ~20 days then fades over ~60 days. |
+| **SN II** | Orange | Core-collapse supernova — a massive star's core implodes. Has a long ~80-day brightness plateau powered by hydrogen recombination. |
+| **SN Ibc** | Yellow | Stripped core-collapse — same physics as SN II but the star lost its outer layers before exploding. Faster rise and decline. |
+| **SLSN** | Green | Super-luminous supernova — 10 to 100 times brighter than a normal supernova. Extremely rare. Possibly powered by a rapidly spinning neutron star (magnetar). |
+| **Kilonova** | Blue | Neutron star merger — two neutron stars collide. The heavy elements (gold, platinum) in your jewellery were made in events like this. Rises and fades in just 2–5 days. |
+| **AGN** | Purple | Active Galactic Nucleus — a supermassive black hole actively swallowing material. Varies stochastically over years. Never fully fades. |
+| **RRL** | Pink | RR Lyrae variable star — an old, low-mass star that physically pulsates with a very regular period of 0.2–1 day. Used to map the Milky Way's structure. |
+| **Other** | Grey | Unclassified — model confidence below threshold. Could be a tidal disruption event, microlensing, eclipsing binary, or something genuinely new. |
+
+---
+
+## API Reference
+
+The FastAPI server exposes these endpoints:
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/health` | Returns `{"status": "ok"}` — use for uptime monitoring |
+| `GET` | `/api/alerts?limit=200` | Returns the most recent N predictions from the database |
+| `GET` | `/api/stats` | Returns total count, per-class breakdown, and drift scores |
+| `POST` | `/api/predict` | Classifies a single alert you provide as JSON |
+| `WS` | `/ws/alerts` | WebSocket — receive a JSON message every time a new alert is classified |
+
+### Example: classify a single alert
 
 ```bash
 curl -X POST http://localhost:8000/api/predict \
@@ -208,10 +224,200 @@ curl -X POST http://localhost:8000/api/predict \
 
 ---
 
-## 🧪 Tests, Lint & Type Check
+## Data Sources
+
+### ALeRCE (default — no login required)
+
+The consumer polls the [ALeRCE ZTF REST API](https://api.alerce.online/ztf/v1) every 8 seconds. It cycles through supernova, AGN, and variable-star query types so the dashboard gets a diverse mix of real events.
+
+```yaml
+# configs/dev.yaml
+ingest:
+  mode: alerce
+  poll_interval_sec: 8.0
+  batch_size: 10
+```
+
+### Fink Broker (alternative)
+
+```yaml
+ingest:
+  mode: fink
+```
+
+Add credentials to `.env` if using private Fink streams (copy `.env.example` first):
+
+```env
+FINK_USER=your_username
+FINK_PASSWORD=your_password
+```
+
+### Mock / Fully offline
+
+```yaml
+ingest:
+  mode: mock
+```
+
+Generates synthetic light curves locally. No network needed. Good for demos and development.
+
+---
+
+## Sky Map Assets
+
+The sky map background uses three pre-generated JSON files served as static assets:
+
+| File | Contents | Size |
+|---|---|---|
+| `frontend/data/stars.json` | ~9,000 brightest Hipparcos stars with RA, Dec, and magnitude | ~540 KB |
+| `frontend/data/constellations.json` | 88 IAU constellation line segments (HIP star pairs) | ~28 KB |
+| `frontend/data/milkyway.json` | 361-point galactic-plane centre-line in equatorial coords | ~6 KB |
+
+Generate them once by running:
 
 ```bash
-# Run test suite (fully offline — no network required)
+python scripts/build_sky_assets.py
+```
+
+The script fetches data from the HYG database and Stellarium. If the network is unavailable it falls back to an embedded minimal dataset (50 brightest stars, 5 major constellations) so the dashboard still loads.
+
+### How the Milky Way is drawn
+
+The galactic band is drawn on an offscreen canvas in three clean layers, then composited at 55% opacity onto the sky:
+
+- **Layer 1** — A wide, heavily blurred (`blur(18px)`) cool-white stroke covering the full band width. This represents the diffuse glow of millions of unresolved stars.
+- **Layer 2** — A narrower, moderately blurred (`blur(4px)`) brighter spine down the centre, representing the denser galactic plane.
+- **Layer 3** — A very thin `destination-out` (erasing) stroke along the exact centre, creating a faint dark notch that hints at the real interstellar dust lane that blocks light in the actual Milky Way.
+
+The result is subtle — background context, not the main event.
+
+---
+
+## Training on Real PLAsTiCC Data
+
+For a production-quality model, train on the real [PLAsTiCC](https://plasticc.org/) dataset:
+
+```bash
+# Download ~500 MB from Zenodo and convert to parquet
+python scripts/download_plasticc.py --real
+
+# Retrain
+python scripts/train_model.py --data data/processed/plasticc_train.parquet
+```
+
+---
+
+## Project Layout
+
+```
+rubin-skymap/
+│
+├── configs/
+│   ├── base.yaml              — all default settings
+│   └── dev.yaml               — dev overrides (mode, poll interval, DB path)
+│
+├── rubin_skymap/              — main Python package
+│   ├── config.py              — YAML loader with deep-merge and dotenv support
+│   ├── logging_setup.py
+│   ├── ingest/
+│   │   ├── alerce_source.py   — ALeRCE ZTF REST API client
+│   │   ├── fink_source.py     — Fink broker REST API client
+│   │   ├── mock_source.py     — synthetic parametric light-curve generator
+│   │   └── schemas.py         — Pydantic alert schema
+│   ├── features/
+│   │   └── lightcurve.py      — 15 photometric feature extractors
+│   ├── models/
+│   │   ├── train.py           — LightGBM training pipeline
+│   │   ├── predict.py         — inference wrapper (loads model once, thread-safe)
+│   │   └── explain.py         — SHAP TreeExplainer wrapper
+│   ├── db/
+│   │   ├── models.py          — SQLAlchemy ORM table definitions
+│   │   └── session.py         — engine/session factory + CRUD helpers
+│   ├── serving/
+│   │   ├── api.py             — FastAPI app: REST routes + WebSocket + static files
+│   │   └── bus.py             — asyncio in-process broadcast bus
+│   └── monitoring/
+│       └── drift.py           — Kolmogorov–Smirnov drift scoring vs training data
+│
+├── scripts/
+│   ├── build_sky_assets.py    — generate stars / constellations / milkyway JSON
+│   ├── download_plasticc.py   — synthetic generator + Zenodo downloader
+│   ├── train_model.py         — training entry point
+│   └── run_consumer.py        — consumer loop entry point
+│
+├── frontend/
+│   ├── index.html             — single-page dashboard
+│   ├── styles.css             — dark theme styles
+│   ├── app.js                 — all JS: canvas rendering, WebSocket, inspector
+│   └── data/
+│       ├── stars.json         — Hipparcos star positions (generated)
+│       ├── constellations.json — IAU constellation lines (generated)
+│       └── milkyway.json      — galactic plane polyline (generated)
+│
+├── tests/
+│   ├── test_api.py
+│   ├── test_features.py
+│   ├── test_ingest.py
+│   ├── test_model.py
+│   └── test_sky_assets.py     — schema validation for generated data files
+│
+├── data/
+│   ├── raw/                   — raw parquet input files
+│   └── processed/             — feature parquets used for drift monitoring
+│
+├── models/
+│   └── lgbm_v1.txt            — trained LightGBM model (generated by train_model.py)
+│
+├── run.sh                     — one-command launcher
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── pyproject.toml
+```
+
+---
+
+## Configuration Reference
+
+All configuration lives in `configs/base.yaml` (defaults). Override any value in `configs/dev.yaml`, or point to a different file via the `RUBIN_SKYMAP_ENV` environment variable.
+
+| Key | Default | What it controls |
+|---|---|---|
+| `ingest.mode` | `alerce` | Alert source: `alerce` · `fink` · `mock` |
+| `ingest.poll_interval_sec` | `8.0` | Seconds between poll cycles |
+| `ingest.batch_size` | `10` | Alerts fetched per cycle |
+| `ingest.alerce.min_detections` | `5` | Minimum ZTF detections to include an object |
+| `ingest.alerce.min_probability` | `0.0` | Minimum ALeRCE classifier probability gate |
+| `model.num_leaves` | `31` | LightGBM tree complexity |
+| `model.learning_rate` | `0.05` | Gradient boosting learning rate |
+| `model.n_estimators` | `300` | Maximum number of boosting rounds |
+| `model.random_state` | `42` | Global random seed for reproducibility |
+| `server.port` | `8000` | API server port |
+| `db.url` | `sqlite:///./rubin_skymap.db` | SQLAlchemy database URL |
+
+---
+
+## Docker
+
+```bash
+# Build and start the API server in a container (port 8000)
+docker compose up --build
+```
+
+The container runs the **API server only**. Start the consumer on the host:
+
+```bash
+python scripts/run_consumer.py
+```
+
+> CORS is set to `["*"]` for development. Restrict `server.cors_origins` in `configs/base.yaml` before deploying publicly.
+
+---
+
+## Tests, Lint, and Type Check
+
+```bash
+# Run the test suite (fully offline)
 pytest -q
 
 # Lint with ruff
@@ -223,182 +429,31 @@ mypy rubin_skymap
 
 ---
 
-## 🐳 Docker
+## Troubleshooting
 
-```bash
-# Build and start the API container (port 8000)
-docker compose up --build
-```
-
-The container runs the **API server only**. Run the consumer on the host side:
-
-```bash
-python scripts/run_consumer.py
-```
-
-> ⚠️ CORS is set to `["*"]` for development. Tighten `server.cors_origins` in `configs/base.yaml` before any production deployment.
-
----
-
-## 📁 Project Layout
-
-```
-rubin-skymap/
-├── 📂 configs/
-│   ├── base.yaml            # Base configuration (all defaults)
-│   └── dev.yaml             # Dev overlay (mode, poll interval, DB URL)
-├── 📂 rubin_skymap/         # Main Python package
-│   ├── config.py            # YAML loader with deep-merge + dotenv
-│   ├── logging_setup.py
-│   ├── 📂 ingest/
-│   │   ├── alerce_source.py # ALeRCE ZTF REST API source (default)
-│   │   ├── fink_source.py   # Fink broker REST API source
-│   │   ├── mock_source.py   # Parametric synthetic source
-│   │   └── schemas.py       # Alert pydantic schema
-│   ├── 📂 features/
-│   │   └── lightcurve.py    # 15 photometric feature extractors
-│   ├── 📂 models/
-│   │   ├── train.py         # LightGBM training pipeline + MLflow
-│   │   ├── predict.py       # Inference wrapper
-│   │   └── explain.py       # SHAP explainer wrapper
-│   ├── 📂 db/
-│   │   ├── models.py        # SQLAlchemy ORM models
-│   │   └── session.py       # Engine cache + CRUD helpers
-│   ├── 📂 serving/
-│   │   ├── api.py           # FastAPI routes + WebSocket endpoint
-│   │   └── bus.py           # In-process asyncio broadcast bus
-│   └── 📂 monitoring/
-│       └── drift.py         # KS-drift scoring vs training features
-├── 📂 scripts/
-│   ├── download_plasticc.py # Synthetic generator + Zenodo downloader
-│   ├── train_model.py       # Training entry point
-│   └── run_consumer.py      # Consumer loop entry point
-├── 📂 frontend/             # Vanilla HTML5 Canvas + CSS + JS dashboard
-├── 📂 tests/                # pytest suite (fully offline)
-├── 📂 data/
-│   ├── raw/                 # Parquet input files
-│   └── processed/           # Feature parquets for drift monitoring
-├── run.sh                   # One-command launcher
-├── Dockerfile
-└── docker-compose.yml
-```
-
----
-
-## ⚙️ Configuration Reference
-
-All config lives in `configs/base.yaml` (defaults) overridden by `configs/dev.yaml` (or any file named by `RUBIN_SKYMAP_ENV`).
-
-| Key | Default | Description |
-|---|---|---|
-| `ingest.mode` | `alerce` | Alert source: `alerce` · `fink` · `mock` |
-| `ingest.poll_interval_sec` | `8.0` | Seconds between poll cycles |
-| `ingest.batch_size` | `10` | Objects fetched per cycle |
-| `ingest.alerce.min_detections` | `5` | Min ZTF detections to include an object |
-| `ingest.alerce.min_probability` | `0.0` | Min ALeRCE classifier probability gate |
-| `model.num_leaves` | `31` | LightGBM `num_leaves` |
-| `model.learning_rate` | `0.05` | LightGBM learning rate |
-| `model.n_estimators` | `300` | Max boosting rounds |
-| `model.random_state` | `42` | Global random seed |
-| `server.port` | `8000` | API server port |
-| `db.url` | `sqlite:///./rubin_skymap.db` | SQLAlchemy DB URL |
-
----
-
-## 🏷️ Transient Classes
-
-| Class | Description |
-|---|---|
-| 🔴 **SN Ia** | Type Ia thermonuclear supernova — standard candle for cosmology |
-| 🟠 **SN II** | Core-collapse supernova with hydrogen envelope — plateau light curve |
-| 🟡 **SN Ibc** | Stripped core-collapse supernova — faster, fainter than SN Ia |
-| 🟢 **SLSN** | Super-luminous supernova — 10–100× brighter than normal SNe |
-| 🔵 **Kilonova** | Neutron star merger — rapid rise, red/infrared colours |
-| 🟣 **AGN** | Active galactic nucleus — stochastic long-timescale variability |
-| 🩷 **RRL** | RR Lyrae variable star — pulsating, short period, distance indicator |
-| ⚪ **Other** | Unclassified / low-confidence detections |
-
----
-
-## 🌌 Sky Map Assets
-
-The sky-map canvas renders real astronomical data: ~9,000 Hipparcos stars, 88 IAU constellation lines, and a multi-layer animated Milky Way band.
-
-### Generate the assets (one-time setup)
-
-```bash
-python scripts/build_sky_assets.py
-```
-
-This downloads and parses:
-- **Stars** — HYG database (Hipparcos IDs, magnitudes, RA/Dec) → `frontend/data/stars.json`
-- **Constellations** — Stellarium `constellationship.fab` + HYG positions → `frontend/data/constellations.json`
-- **Milky Way** — Galactic-plane great circle via `astropy` → `frontend/data/milkyway.json`
-
-The three files are committed to the repo and total **~580 KB**. They are served as static files under `/static/data/` by the FastAPI server.
-
-> **Offline fallback** — if the network fetch fails, the script writes a minimal embedded dataset (50 brightest stars, 5 major constellations). The dashboard renders gracefully with whatever data is present; missing files produce an empty sky background without error.
-
-### Milky Way renderer
-
-The galactic band is drawn in **7 stacked canvas passes** on an offscreen canvas, composited with additive (`"lighter"`) blending so it self-illuminates without obscuring stars or alert dots:
-
-| Pass | Effect |
-|---|---|
-| **L1** | Outer dust haze — enormous warm-amber envelope, `blur(22px)` |
-| **L2** | Teal-blue nebula band — mid-width nebulosity, `blur(10px)` |
-| **L3** | Golden inner glow — warm density enhancement, `blur(6px)` |
-| **L4** | Bright core spine — narrow cool-white nucleus thread, `blur(2px)` |
-| **L5** | Dark dust lane — `destination-out` composite punches a shadow through the core |
-| **L6** | Scatter particle field — deterministic seeded warm/cool point cloud along the band |
-| **L7** | Dual travelling shimmer — blue-white + gold dashed trains at different speeds, alpha modulated by `sin(t)` |
-
-A `requestAnimationFrame` loop drives L7 continuously. The loop starts/stops automatically with the **Milky Way** toggle.
-
-### Real-time UTC clock
-
-A live UTC clock is displayed in the header right section. It ticks every 500 ms with a colon-blink effect and a brief accent-colour pulse each second.
-
-### Sky layer toggles
-
-The legend bar includes four layer toggles:
-
-| Toggle | Default | Controls |
-|---|---|---|
-| **Milky Way** | on | Full 7-layer animated galactic band |
-| **Stars** | on | Hipparcos background stars (size ∝ magnitude, DPR-aware) |
-| **Constellations** | on | 88 IAU constellation line segments |
-| **Labels** | off | Constellation name text at centroid |
-
----
-
-## 🐛 Troubleshooting
-
-| Symptom | Fix |
+| Problem | Solution |
 |---|---|
 | `Model not found at models/lgbm_v1.txt` | Run `python scripts/train_model.py` (or just `./run.sh`) |
 | `Training data not found` | Run `python scripts/download_plasticc.py --synthetic` first |
-| Port 8000 already in use | `lsof -ti:8000 \| xargs kill` or change `server.port` in `configs/base.yaml` |
-| Sky map is empty | Ensure consumer is running; hit `/api/alerts` — should return ZTF rows |
-| Dashboard shows red dot | API server not reachable — dashboard auto-reconnects every 3 s |
-| `ModuleNotFoundError: rubin_skymap` | Run all commands from the repo root with venv active |
-| Only mock data in dashboard | Check `ingest.mode` is `alerce` in `configs/dev.yaml` and restart consumer |
-| All alerts same class | Old mock rows in DB — run `DELETE FROM alerts WHERE object_id LIKE 'MOCK-%'` |
+| Port 8000 already in use | `lsof -ti:8000 \| xargs kill` or change `server.port` in config |
+| Sky map shows no stars or constellations | Run `python scripts/build_sky_assets.py` to generate the data files |
+| Sky map shows no alert dots | Make sure the consumer is running; check `/api/alerts` returns rows |
+| Dashboard status dot is red | API server is not reachable — it will auto-reconnect every 3 s |
+| `ModuleNotFoundError: rubin_skymap` | Run all commands from the repo root with the venv activated |
+| All alerts are the same class | Old mock rows in DB — `DELETE FROM alerts WHERE object_id LIKE 'MOCK-%'` |
 
 ---
 
-## ✅ Reproducibility Checklist
+## Reproducibility
 
-- [x] All random seeds controlled via `model.random_state` in config
-- [x] All file paths defined in `configs/base.yaml` — no hardcoded paths in library code
-- [x] `requirements.txt` pinned to exact versions
-- [x] Synthetic data generation is fully deterministic (seed 42)
-- [x] MLflow run logged to `mlruns/` with params, metrics, and artifacts
-- [x] Training features saved to `data/processed/features_train.parquet` for drift monitoring
-- [x] `RUBIN_SKYMAP_ENV` env var selects config overlay (default: `dev`)
+- All random seeds are controlled by `model.random_state` in config (default 42)
+- All file paths are defined in `configs/base.yaml` — no hardcoded paths anywhere in library code
+- `requirements.txt` is pinned to exact versions
+- Synthetic data generation is fully deterministic
+- Training features are saved to `data/processed/features_train.parquet` for later drift monitoring
 
 ---
 
-## 📄 License
+## License
 
 MIT — see [LICENSE](LICENSE.md).

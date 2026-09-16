@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import lightgbm as lgb
-import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -173,76 +172,62 @@ def train_model(
 
     _log.info("Training LightGBM (n_estimators=%d) …", n_estimators)
 
-    # MLflow tracking.
-    mlflow.set_tracking_uri("file:./mlruns")
-    mlflow.set_experiment("rubin-skymap")
+    callbacks = [lgb.log_evaluation(period=50), lgb.early_stopping(50, verbose=False)]
+    booster = lgb.train(
+        lgb_params,
+        lgb_train,
+        num_boost_round=n_estimators,
+        valid_sets=[lgb_valid],
+        callbacks=callbacks,
+    )
 
-    with mlflow.start_run():
-        mlflow.log_params({**lgb_params, "n_estimators": n_estimators})
+    # Evaluate.
+    y_pred_proba = booster.predict(X_test)
+    y_pred = np.argmax(y_pred_proba, axis=1)
 
-        callbacks = [lgb.log_evaluation(period=50), lgb.early_stopping(50, verbose=False)]
-        booster = lgb.train(
-            lgb_params,
-            lgb_train,
-            num_boost_round=n_estimators,
-            valid_sets=[lgb_valid],
-            callbacks=callbacks,
+    macro_f1 = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+
+    # Only include classes that actually appear in y_test to avoid sklearn mismatch.
+    present_labels = sorted(y_test.unique().tolist())
+    present_names = [INT_TO_LABEL[i] for i in present_labels]
+
+    per_class_report = classification_report(
+        y_test,
+        y_pred,
+        labels=present_labels,
+        target_names=present_names,
+        output_dict=True,
+        zero_division=0,
+    )
+    cm = confusion_matrix(y_test, y_pred, labels=present_labels).tolist()
+
+    per_class_f1: dict[str, float] = {
+        INT_TO_LABEL[i]: float(
+            per_class_report.get(INT_TO_LABEL[i], {}).get("f1-score", 0.0)
         )
+        for i in range(n_classes)
+    }
 
-        # Evaluate.
-        y_pred_proba = booster.predict(X_test)
-        y_pred = np.argmax(y_pred_proba, axis=1)
+    # Save model.
+    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+    booster.save_model(model_path)
+    _log.info("Saved model → %s", model_path)
 
-        macro_f1 = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+    # Save label map.
+    label_map_data = {
+        "int_to_label": {str(k): v for k, v in INT_TO_LABEL.items()},
+        "label_to_int": LABEL_TO_INT,
+    }
+    Path(label_map_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(label_map_path, "w", encoding="utf-8") as fh:
+        json.dump(label_map_data, fh, indent=2)
+    _log.info("Saved label map → %s", label_map_path)
 
-        # Only include classes that actually appear in y_test to avoid sklearn mismatch.
-        present_labels = sorted(y_test.unique().tolist())
-        present_names = [INT_TO_LABEL[i] for i in present_labels]
-
-        per_class_report = classification_report(
-            y_test,
-            y_pred,
-            labels=present_labels,
-            target_names=present_names,
-            output_dict=True,
-            zero_division=0,
-        )
-        cm = confusion_matrix(y_test, y_pred, labels=present_labels).tolist()
-
-        per_class_f1: dict[str, float] = {
-            INT_TO_LABEL[i]: float(
-                per_class_report.get(INT_TO_LABEL[i], {}).get("f1-score", 0.0)
-            )
-            for i in range(n_classes)
-        }
-
-        mlflow.log_metric("macro_f1", macro_f1)
-        for cls_name, f1 in per_class_f1.items():
-            mlflow.log_metric(f"f1_{cls_name.replace(' ', '_')}", f1)
-
-        # Save model.
-        Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-        booster.save_model(model_path)
-        _log.info("Saved model → %s", model_path)
-
-        # Save label map.
-        label_map_data = {
-            "int_to_label": {str(k): v for k, v in INT_TO_LABEL.items()},
-            "label_to_int": LABEL_TO_INT,
-        }
-        Path(label_map_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(label_map_path, "w", encoding="utf-8") as fh:
-            json.dump(label_map_data, fh, indent=2)
-        _log.info("Saved label map → %s", label_map_path)
-
-        mlflow.log_artifact(model_path)
-        mlflow.log_artifact(label_map_path)
-
-        # Save training features for drift monitoring.
-        feat_parquet = "data/processed/features_train.parquet"
-        Path(feat_parquet).parent.mkdir(parents=True, exist_ok=True)
-        X_train.to_parquet(feat_parquet, index=False)
-        _log.info("Saved training features → %s", feat_parquet)
+    # Save training features for drift monitoring.
+    feat_parquet = "data/processed/features_train.parquet"
+    Path(feat_parquet).parent.mkdir(parents=True, exist_ok=True)
+    X_train.to_parquet(feat_parquet, index=False)
+    _log.info("Saved training features → %s", feat_parquet)
 
     metrics: dict[str, Any] = {
         "macro_f1": macro_f1,

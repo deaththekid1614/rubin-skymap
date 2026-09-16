@@ -28,9 +28,6 @@ python-multipart==0.0.9
 sqlalchemy==2.0.30
 sqlite-utils==3.36
 
-# ---- MLOps ----
-mlflow==2.14.1
-
 # ---- Config / utils ----
 pyyaml==6.0.1
 python-dotenv==1.0.1

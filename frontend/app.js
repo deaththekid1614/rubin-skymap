@@ -73,9 +73,6 @@ const skyToggles = {
   labels:        false,
 };
 
-/* ── Milky Way animation frame ref ───────────────────────────── */
-let _mwAnimFrame = null;
-
 /* ══════════════════════════════════════════════════════════════
    COORDINATE HELPERS
 ══════════════════════════════════════════════════════════════ */
@@ -196,51 +193,37 @@ function drawGrid() {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   MILKY WAY — GALAXY RENDERER
-   ─────────────────────────────────────────────────────────────
-   Seven layered passes produce realistic galactic-band aesthetics:
+   MILKY WAY
+   Three clean layers, all on an offscreen canvas composited at
+   low opacity with source-over so it stays a background hint,
+   never a dominant feature.
 
-   L1  Outer dust haze      – enormous soft warm-amber envelope
-   L2  Mid nebula band      – teal-blue nebulosity, medium width
-   L3  Inner warm glow      – golden-orange inner disc density
-   L4  Bright core spine    – narrow cool-white nucleus thread
-   L5  Dark dust lane       – subtract-blended opaque centre strip
-   L6  Scatter particles    – seeded point cloud along the band (fast deterministic)
-   L7  Travelling shimmer   – animated dashed highlight, speed + alpha from sin()
-
-   Everything goes onto one offscreen canvas, composited "lighter"
-   (additive) onto the sky so the band self-illuminates without
-   obscuring stars or alert dots.
+   L1  Wide soft haze  — the broad diffuse band of unresolved stars
+   L2  Narrow spine    — the slightly brighter galactic-plane core
+   L3  Dust notch      — a hairline destination-out that cuts the
+                         very centre, hinting at dust-lane absorption
 ───────────────────────────────────────────────────────────── */
 
-function drawMilkyWay(ctx, ts) {
+function drawMilkyWay(ctx) {
   if (!skyToggles.milkyway || !skyMilkyway || !skyMilkyway.points.length) return;
 
   const W   = skyCanvas.width;
   const H   = skyCanvas.height;
   const dpr = window.devicePixelRatio || 1;
-  const t   = (ts || 0) / 1000;            // seconds, drives all animation
 
   const pts    = skyMilkyway.points;
   const innerH = (H / dpr) - PAD.top - PAD.bottom;
-
-  /* Canonical width sizes — everything derived from band's angular width */
   const bandPx = (skyMilkyway.width_deg / 180) * innerH * dpr;
-  const hazeW  = Math.max(12, bandPx * 1.60);  // L1 outer envelope
-  const nebW   = Math.max(8,  bandPx * 0.90);  // L2 nebula
-  const warmW  = Math.max(5,  bandPx * 0.52);  // L3 warm inner
-  const coreW  = Math.max(2,  bandPx * 0.16);  // L4 spine
-  const dustW  = Math.max(1,  bandPx * 0.06);  // L5 dust lane
 
   /* ── offscreen canvas ─────────────────────────────────────── */
   const off = document.createElement("canvas");
   off.width  = W;
   off.height = H;
-  const oc   = off.getContext("2d");
+  const oc  = off.getContext("2d");
 
-  /* Build two arrays of canvas coords (splits at RA wrap) */
+  /* Convert polyline to canvas coords, split at RA wrap-around */
   const segments = [];
-  let   seg      = [];
+  let seg = [];
   for (let i = 0; i < pts.length; i++) {
     const [ra, dec] = pts[i];
     if (i > 0 && Math.abs(ra - pts[i - 1][0]) > 12) {
@@ -251,8 +234,7 @@ function drawMilkyWay(ctx, ts) {
   }
   if (seg.length) segments.push(seg);
 
-  /* helper — stroke all segments with current oc state */
-  function _paint() {
+  function _stroke() {
     for (const s of segments) {
       oc.beginPath();
       oc.moveTo(s[0].x, s[0].y);
@@ -261,151 +243,42 @@ function drawMilkyWay(ctx, ts) {
     }
   }
 
-  /* ── L1: outer dust haze — wide, very blurred, warm amber ─── */
+  /* L1 — wide diffuse haze */
   oc.save();
-  oc.filter      = "blur(22px)";
-  oc.strokeStyle = "rgba(255,200,100,0.14)";
-  oc.lineWidth   = hazeW;
-  oc.lineCap     = "round"; oc.lineJoin = "round";
-  _paint();
+  oc.filter      = "blur(18px)";
+  oc.strokeStyle = "rgba(200,210,230,0.22)";
+  oc.lineWidth   = Math.max(10, bandPx * 0.90);
+  oc.lineCap     = "round";
+  oc.lineJoin    = "round";
+  _stroke();
   oc.restore();
 
-  /* ── L2: nebula band — teal-blue, medium blur ──────────────── */
+  /* L2 — brighter inner spine */
   oc.save();
-  oc.filter      = "blur(10px)";
-  oc.strokeStyle = "rgba(100,180,255,0.18)";
-  oc.lineWidth   = nebW;
-  oc.lineCap     = "round"; oc.lineJoin = "round";
-  _paint();
+  oc.filter      = "blur(4px)";
+  oc.strokeStyle = "rgba(210,225,255,0.38)";
+  oc.lineWidth   = Math.max(3, bandPx * 0.18);
+  oc.lineCap     = "round";
+  oc.lineJoin    = "round";
+  _stroke();
   oc.restore();
 
-  /* ── L3: warm inner glow — golden density enhancement ─────── */
-  oc.save();
-  oc.filter      = "blur(6px)";
-  oc.strokeStyle = "rgba(255,220,140,0.22)";
-  oc.lineWidth   = warmW;
-  oc.lineCap     = "round"; oc.lineJoin = "round";
-  _paint();
-  oc.restore();
-
-  /* ── L4: core spine — bright cool-white thread ─────────────── */
-  oc.save();
-  oc.filter      = "blur(2px)";
-  oc.strokeStyle = "rgba(210,230,255,0.65)";
-  oc.lineWidth   = coreW;
-  oc.lineCap     = "round"; oc.lineJoin = "round";
-  _paint();
-  oc.restore();
-
-  /* ── L5: dark dust lane — destination-out punch through core ─ */
+  /* L3 — dust-lane notch (erase a thin thread from the core) */
   oc.save();
   oc.filter                   = "blur(1px)";
   oc.globalCompositeOperation = "destination-out";
-  oc.strokeStyle              = "rgba(0,0,0,0.32)";
-  oc.lineWidth                = dustW;
-  oc.lineCap                  = "round"; oc.lineJoin = "round";
-  _paint();
+  oc.strokeStyle              = "rgba(0,0,0,0.18)";
+  oc.lineWidth                = Math.max(1, bandPx * 0.04);
+  oc.lineCap                  = "round";
+  oc.lineJoin                 = "round";
+  _stroke();
   oc.restore();
 
-  /* ── L6: scatter particle field along band ─────────────────── */
-  /* Deterministic seeding so particles never move between frames
-     (they are fixed geometry; only L7 animates). We sample every
-     4th point of the polyline and scatter N particles perpendicularly. */
-  {
-    const PARTICLES_PER_KNOT = 6;
-    const SPREAD             = bandPx * 0.45;   // ± perp spread
-    const SEED_STEP          = 4;               // sample every Nth point
-
-    oc.save();
-    oc.filter = "blur(1.2px)";
-
-    for (const s of segments) {
-      for (let k = 0; k < s.length - 1; k += SEED_STEP) {
-        const ax = s[k].x,     ay = s[k].y;
-        const bx = s[k + 1].x, by = s[k + 1].y;
-        const dx = bx - ax,    dy = by - ay;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / len,  ny = dx / len;   // unit normal
-
-        for (let p = 0; p < PARTICLES_PER_KNOT; p++) {
-          /* Deterministic pseudo-random — three independent 32-bit hashes
-             derived from the particle index. Pure integer math, no BigInt. */
-          let h = (k * PARTICLES_PER_KNOT + p + 1) | 0;
-          h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
-          h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
-          h = (h ^ (h >>> 16)) >>> 0;
-          const r1 = (h & 0xffff) / 0xffff;
-
-          let h2 = (h + 0x9e3779b9) | 0;
-          h2 = Math.imul(h2 ^ (h2 >>> 16), 0x45d9f3b) | 0;
-          h2 = (h2 ^ (h2 >>> 16)) >>> 0;
-          const r2 = (h2 & 0xffff) / 0xffff;
-
-          let h3 = (h2 + 0x9e3779b9) | 0;
-          h3 = Math.imul(h3 ^ (h3 >>> 16), 0x45d9f3b) | 0;
-          h3 = (h3 ^ (h3 >>> 16)) >>> 0;
-          const r3 = (h3 & 0xffff) / 0xffff;
-
-          const perp  = (r1 - 0.5) * 2 * SPREAD;
-          const along = r2 * len;
-          const px    = ax + dx * (along / len) + nx * perp;
-          const py    = ay + dy * (along / len) + ny * perp;
-
-          const rad   = (0.4 + r3 * 1.2) * dpr;
-          /* Colour: mix warm and cool randomly */
-          const warm  = r1 > 0.5;
-          oc.fillStyle = warm
-            ? `rgba(255,230,180,${(0.15 + r2 * 0.25).toFixed(3)})`
-            : `rgba(180,210,255,${(0.12 + r3 * 0.22).toFixed(3)})`;
-          oc.beginPath();
-          oc.arc(px, py, rad, 0, Math.PI * 2);
-          oc.fill();
-        }
-      }
-    }
-    oc.restore();
-  }
-
-  /* ── L7: travelling shimmer ────────────────────────────────── */
-  /* Two overlapping dashed trains at different speeds + colours
-     give a complex flowing aurora-like shimmer. */
-  {
-    const shimW = Math.max(1, coreW * 0.6);
-
-    /* Slow blue-white pulse */
-    const a1     = 0.20 + 0.14 * Math.sin(2 * Math.PI * (t / 9.0));
-    const off1   = (t * 18 * dpr) % (22 * dpr + 40 * dpr);
-    oc.save();
-    oc.filter          = "blur(1.5px)";
-    oc.strokeStyle     = `rgba(200,230,255,${a1.toFixed(3)})`;
-    oc.lineWidth       = shimW;
-    oc.lineCap         = "round"; oc.lineJoin = "round";
-    oc.setLineDash([22 * dpr, 40 * dpr]);
-    oc.lineDashOffset  = -off1;
-    _paint();
-    oc.restore();
-
-    /* Fast warm-gold pulse, opposite direction */
-    const a2     = 0.14 + 0.10 * Math.sin(2 * Math.PI * (t / 5.0) + 1.2);
-    const off2   = -(t * 28 * dpr) % (14 * dpr + 55 * dpr);
-    oc.save();
-    oc.filter          = "blur(1px)";
-    oc.strokeStyle     = `rgba(255,220,140,${a2.toFixed(3)})`;
-    oc.lineWidth       = shimW * 0.7;
-    oc.lineCap         = "round"; oc.lineJoin = "round";
-    oc.setLineDash([14 * dpr, 55 * dpr]);
-    oc.lineDashOffset  = off2;
-    _paint();
-    oc.restore();
-  }
-
-  /* ── Composite onto main sky canvas (additive blend) ──────── */
+  /* Composite onto main canvas — normal blend, kept subtle */
   ctx.save();
-  ctx.globalAlpha              = 0.78;
-  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.55;
   ctx.drawImage(off, 0, 0);
-  ctx.globalCompositeOperation = "source-over";
-  ctx.globalAlpha              = 1.0;
+  ctx.globalAlpha = 1.0;
   ctx.restore();
 }
 
@@ -597,55 +470,16 @@ function drawDot(alert, highlight) {
    FULL REDRAW PIPELINE
 ───────────────────────────────────────────────────────────── */
 
-/**
- * Full redraw in layer order:
- *   clear → milkyway → grid → stars → constellations → labels → alerts → selection
- *
- * @param {number} [ts=0] — requestAnimationFrame timestamp (ms), forwarded to drawMilkyWay
- */
-function redrawMap(ts) {
+/** Full redraw in layer order: clear → milkyway → grid → stars → constellations → labels → alerts */
+function redrawMap() {
   const ctx = skyCtx;
-
-  /* 1. Background + clear (done inside drawGrid) */
   drawGrid();
-
-  /* 2. Milky Way — receives timestamp for shimmer animation */
-  drawMilkyWay(ctx, ts || 0);
-
-  /* 3. Stars */
+  drawMilkyWay(ctx);
   drawStars(ctx);
-
-  /* 4. Constellation lines */
   drawConstellations(ctx);
-
-  /* 5. Constellation labels */
   drawLabels(ctx);
-
-  /* 6+7. Alert dots + selection highlight */
   for (const alert of allAlerts) {
     drawDot(alert, alert.object_id === selectedOid);
-  }
-}
-
-/* ── Milky Way animation loop ─────────────────────────────────────
-   Runs only while the Milky Way toggle is on.
-   requestAnimationFrame keeps the shimmer smooth; when the toggle
-   is turned off the loop stops automatically.
-─────────────────────────────────────────────────────────────────── */
-function _startMWAnimation() {
-  if (_mwAnimFrame !== null) return;        // already running
-  function _frame(ts) {
-    if (!skyToggles.milkyway) { _mwAnimFrame = null; return; }
-    redrawMap(ts);
-    _mwAnimFrame = requestAnimationFrame(_frame);
-  }
-  _mwAnimFrame = requestAnimationFrame(_frame);
-}
-
-function _stopMWAnimation() {
-  if (_mwAnimFrame !== null) {
-    cancelAnimationFrame(_mwAnimFrame);
-    _mwAnimFrame = null;
   }
 }
 
@@ -1090,12 +924,7 @@ function initFilters() {
     skyToggles[key] = cb.checked;
     cb.addEventListener("change", () => {
       skyToggles[key] = cb.checked;
-      if (key === "milkyway") {
-        if (cb.checked) _startMWAnimation();
-        else { _stopMWAnimation(); redrawMap(); }
-      } else {
-        redrawMap();
-      }
+      redrawMap();
     });
   }
 
@@ -1216,9 +1045,8 @@ function initClock() {
       const dateStr = `${now.getUTCFullYear()}-${p(now.getUTCMonth() + 1)}-${p(now.getUTCDate())}`;
       dateEl.textContent = dateStr;
 
-      /* Time: HH:MM:SS — colon blinks on even seconds */
-      const sep  = sec % 2 === 0 ? ":" : "·";
-      timeEl.textContent = `${p(now.getUTCHours())}${sep}${p(now.getUTCMinutes())}${sep}${p(sec)}`;
+      /* Time: HH:MM:SS */
+      timeEl.textContent = `${p(now.getUTCHours())}:${p(now.getUTCMinutes())}:${p(sec)}`;
 
       /* brief accent colour flash each second */
       timeEl.classList.add("tick");
@@ -1251,9 +1079,9 @@ document.addEventListener("DOMContentLoaded", () => {
     resizeCanvas();
   });
 
-  /* Load sky assets, start shimmer animation, load history, connect WS */
+  /* Load sky assets, draw immediately, then load history and connect WS */
   loadSkyAssets().then(() => {
-    _startMWAnimation();                  // begins the shimmer rAF loop
+    redrawMap();
     return loadHistory();
   }).then(() => connectWS());
 });
