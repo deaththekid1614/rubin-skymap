@@ -320,6 +320,58 @@ All config lives in `configs/base.yaml` (defaults) overridden by `configs/dev.ya
 
 ---
 
+## 🌌 Sky Map Assets
+
+The sky-map canvas renders real astronomical data: ~9,000 Hipparcos stars, 88 IAU constellation lines, and a multi-layer animated Milky Way band.
+
+### Generate the assets (one-time setup)
+
+```bash
+python scripts/build_sky_assets.py
+```
+
+This downloads and parses:
+- **Stars** — HYG database (Hipparcos IDs, magnitudes, RA/Dec) → `frontend/data/stars.json`
+- **Constellations** — Stellarium `constellationship.fab` + HYG positions → `frontend/data/constellations.json`
+- **Milky Way** — Galactic-plane great circle via `astropy` → `frontend/data/milkyway.json`
+
+The three files are committed to the repo and total **~580 KB**. They are served as static files under `/static/data/` by the FastAPI server.
+
+> **Offline fallback** — if the network fetch fails, the script writes a minimal embedded dataset (50 brightest stars, 5 major constellations). The dashboard renders gracefully with whatever data is present; missing files produce an empty sky background without error.
+
+### Milky Way renderer
+
+The galactic band is drawn in **7 stacked canvas passes** on an offscreen canvas, composited with additive (`"lighter"`) blending so it self-illuminates without obscuring stars or alert dots:
+
+| Pass | Effect |
+|---|---|
+| **L1** | Outer dust haze — enormous warm-amber envelope, `blur(22px)` |
+| **L2** | Teal-blue nebula band — mid-width nebulosity, `blur(10px)` |
+| **L3** | Golden inner glow — warm density enhancement, `blur(6px)` |
+| **L4** | Bright core spine — narrow cool-white nucleus thread, `blur(2px)` |
+| **L5** | Dark dust lane — `destination-out` composite punches a shadow through the core |
+| **L6** | Scatter particle field — deterministic seeded warm/cool point cloud along the band |
+| **L7** | Dual travelling shimmer — blue-white + gold dashed trains at different speeds, alpha modulated by `sin(t)` |
+
+A `requestAnimationFrame` loop drives L7 continuously. The loop starts/stops automatically with the **Milky Way** toggle.
+
+### Real-time UTC clock
+
+A live UTC clock is displayed in the header right section. It ticks every 500 ms with a colon-blink effect and a brief accent-colour pulse each second.
+
+### Sky layer toggles
+
+The legend bar includes four layer toggles:
+
+| Toggle | Default | Controls |
+|---|---|---|
+| **Milky Way** | on | Full 7-layer animated galactic band |
+| **Stars** | on | Hipparcos background stars (size ∝ magnitude, DPR-aware) |
+| **Constellations** | on | 88 IAU constellation line segments |
+| **Labels** | off | Constellation name text at centroid |
+
+---
+
 ## 🐛 Troubleshooting
 
 | Symptom | Fix |
@@ -347,6 +399,3 @@ All config lives in `configs/base.yaml` (defaults) overridden by `configs/dev.ya
 
 ---
 
-## 📄 License
-
-MIT — see [LICENSE](LICENSE.md).

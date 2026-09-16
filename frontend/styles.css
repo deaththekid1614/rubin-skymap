@@ -120,7 +120,48 @@ html, body {
 }
 
 /* Connection status */
-#header-right { flex-shrink: 0; }
+#header-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Real-time clock ── */
+#clock-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 11px;
+  font-family: var(--mono);
+  line-height: 1;
+}
+
+#clock-date {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+#clock-time {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.06em;
+  /* pulse: the colon flickers each second via JS toggling .tick */
+}
+#clock-time.tick { color: var(--accent); transition: color 0.08s; }
+
+#clock-utc {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
 
 #conn-status {
   display: flex;
@@ -219,6 +260,74 @@ html, body {
   min-width: 20px;
   text-align: center;
 }
+
+/* ── Sky layer toggles ── */
+.sky-toggles-sep {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: var(--border2);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.sky-toggle-label {
+  border-right: none;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+.sky-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.sky-toggle-item:hover { background: var(--surface3); border-color: var(--border2); color: var(--text); }
+
+/* hide native checkbox — use custom track */
+.sky-toggle-item input[type=checkbox] { display: none; }
+
+/* small pill track */
+.sky-toggle-track {
+  display: inline-block;
+  width: 22px;
+  height: 11px;
+  border-radius: 6px;
+  background: var(--border2);
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.2s;
+}
+.sky-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.2s, background 0.2s;
+}
+.sky-toggle-item input:checked + .sky-toggle-track {
+  background: var(--accent-dim);
+}
+.sky-toggle-item input:checked + .sky-toggle-track::after {
+  transform: translateX(11px);
+  background: var(--accent);
+}
+.sky-toggle-item input:checked ~ * { color: var(--text); }
 
 /* ═══════════════ MAIN LAYOUT ═══════════════ */
 #main-layout {

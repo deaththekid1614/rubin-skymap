@@ -3,6 +3,16 @@
  *
  * Canvas equatorial sky-map + WebSocket live feed + detail inspector.
  * Pure vanilla JS. No dependencies, no build step.
+ *
+ * Rendering pipeline (back → front):
+ *   1. Background + clear
+ *   2. Milky Way band (offscreen blurred canvas, optional)
+ *   3. RA/Dec grid
+ *   4. Hipparcos stars (size by magnitude, optional)
+ *   5. Constellation lines (optional)
+ *   6. Constellation labels (optional)
+ *   7. Alert dots (coloured by class)
+ *   8. Selection highlight
  */
 
 "use strict";
@@ -50,6 +60,22 @@ let skyCtx    = null;
 /* Tooltip element */
 let tooltip   = null;
 
+/* ── Sky asset data ───────────────────────────────────────────── */
+let skyStars          = [];   // [{ra_h, dec_deg, mag, name}]
+let skyConstellations = [];   // [{name, segments:[ra1,dec1,ra2,dec2]}]
+let skyMilkyway       = null; // {points:[[ra_h,dec_deg],...], width_deg}
+
+/* ── Sky layer toggle state ───────────────────────────────────── */
+const skyToggles = {
+  milkyway:      true,
+  stars:         true,
+  constellations:true,
+  labels:        false,
+};
+
+/* ── Milky Way animation frame ref ───────────────────────────── */
+let _mwAnimFrame = null;
+
 /* ══════════════════════════════════════════════════════════════
    COORDINATE HELPERS
 ══════════════════════════════════════════════════════════════ */
@@ -90,6 +116,7 @@ function px2sky(px, py, W, H) {
 
 /**
  * Draw the equatorial grid (RA lines, Dec lines, labels).
+ * Also clears and fills the background.
  */
 function drawGrid() {
   const W = skyCanvas.width;
@@ -168,6 +195,351 @@ function drawGrid() {
   skyCtx.restore();
 }
 
+/* ─────────────────────────────────────────────────────────────
+   MILKY WAY — GALAXY RENDERER
+   ─────────────────────────────────────────────────────────────
+   Seven layered passes produce realistic galactic-band aesthetics:
+
+   L1  Outer dust haze      – enormous soft warm-amber envelope
+   L2  Mid nebula band      – teal-blue nebulosity, medium width
+   L3  Inner warm glow      – golden-orange inner disc density
+   L4  Bright core spine    – narrow cool-white nucleus thread
+   L5  Dark dust lane       – subtract-blended opaque centre strip
+   L6  Scatter particles    – seeded point cloud along the band (fast deterministic)
+   L7  Travelling shimmer   – animated dashed highlight, speed + alpha from sin()
+
+   Everything goes onto one offscreen canvas, composited "lighter"
+   (additive) onto the sky so the band self-illuminates without
+   obscuring stars or alert dots.
+───────────────────────────────────────────────────────────── */
+
+function drawMilkyWay(ctx, ts) {
+  if (!skyToggles.milkyway || !skyMilkyway || !skyMilkyway.points.length) return;
+
+  const W   = skyCanvas.width;
+  const H   = skyCanvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  const t   = (ts || 0) / 1000;            // seconds, drives all animation
+
+  const pts    = skyMilkyway.points;
+  const innerH = (H / dpr) - PAD.top - PAD.bottom;
+
+  /* Canonical width sizes — everything derived from band's angular width */
+  const bandPx = (skyMilkyway.width_deg / 180) * innerH * dpr;
+  const hazeW  = Math.max(12, bandPx * 1.60);  // L1 outer envelope
+  const nebW   = Math.max(8,  bandPx * 0.90);  // L2 nebula
+  const warmW  = Math.max(5,  bandPx * 0.52);  // L3 warm inner
+  const coreW  = Math.max(2,  bandPx * 0.16);  // L4 spine
+  const dustW  = Math.max(1,  bandPx * 0.06);  // L5 dust lane
+
+  /* ── offscreen canvas ─────────────────────────────────────── */
+  const off = document.createElement("canvas");
+  off.width  = W;
+  off.height = H;
+  const oc   = off.getContext("2d");
+
+  /* Build two arrays of canvas coords (splits at RA wrap) */
+  const segments = [];
+  let   seg      = [];
+  for (let i = 0; i < pts.length; i++) {
+    const [ra, dec] = pts[i];
+    if (i > 0 && Math.abs(ra - pts[i - 1][0]) > 12) {
+      if (seg.length) segments.push(seg);
+      seg = [];
+    }
+    seg.push(sky2px(ra, dec, W, H));
+  }
+  if (seg.length) segments.push(seg);
+
+  /* helper — stroke all segments with current oc state */
+  function _paint() {
+    for (const s of segments) {
+      oc.beginPath();
+      oc.moveTo(s[0].x, s[0].y);
+      for (let k = 1; k < s.length; k++) oc.lineTo(s[k].x, s[k].y);
+      oc.stroke();
+    }
+  }
+
+  /* ── L1: outer dust haze — wide, very blurred, warm amber ─── */
+  oc.save();
+  oc.filter      = "blur(22px)";
+  oc.strokeStyle = "rgba(255,200,100,0.14)";
+  oc.lineWidth   = hazeW;
+  oc.lineCap     = "round"; oc.lineJoin = "round";
+  _paint();
+  oc.restore();
+
+  /* ── L2: nebula band — teal-blue, medium blur ──────────────── */
+  oc.save();
+  oc.filter      = "blur(10px)";
+  oc.strokeStyle = "rgba(100,180,255,0.18)";
+  oc.lineWidth   = nebW;
+  oc.lineCap     = "round"; oc.lineJoin = "round";
+  _paint();
+  oc.restore();
+
+  /* ── L3: warm inner glow — golden density enhancement ─────── */
+  oc.save();
+  oc.filter      = "blur(6px)";
+  oc.strokeStyle = "rgba(255,220,140,0.22)";
+  oc.lineWidth   = warmW;
+  oc.lineCap     = "round"; oc.lineJoin = "round";
+  _paint();
+  oc.restore();
+
+  /* ── L4: core spine — bright cool-white thread ─────────────── */
+  oc.save();
+  oc.filter      = "blur(2px)";
+  oc.strokeStyle = "rgba(210,230,255,0.65)";
+  oc.lineWidth   = coreW;
+  oc.lineCap     = "round"; oc.lineJoin = "round";
+  _paint();
+  oc.restore();
+
+  /* ── L5: dark dust lane — destination-out punch through core ─ */
+  oc.save();
+  oc.filter                   = "blur(1px)";
+  oc.globalCompositeOperation = "destination-out";
+  oc.strokeStyle              = "rgba(0,0,0,0.32)";
+  oc.lineWidth                = dustW;
+  oc.lineCap                  = "round"; oc.lineJoin = "round";
+  _paint();
+  oc.restore();
+
+  /* ── L6: scatter particle field along band ─────────────────── */
+  /* Deterministic seeding so particles never move between frames
+     (they are fixed geometry; only L7 animates). We sample every
+     4th point of the polyline and scatter N particles perpendicularly. */
+  {
+    const PARTICLES_PER_KNOT = 6;
+    const SPREAD             = bandPx * 0.45;   // ± perp spread
+    const SEED_STEP          = 4;               // sample every Nth point
+
+    oc.save();
+    oc.filter = "blur(1.2px)";
+
+    for (const s of segments) {
+      for (let k = 0; k < s.length - 1; k += SEED_STEP) {
+        const ax = s[k].x,     ay = s[k].y;
+        const bx = s[k + 1].x, by = s[k + 1].y;
+        const dx = bx - ax,    dy = by - ay;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / len,  ny = dx / len;   // unit normal
+
+        for (let p = 0; p < PARTICLES_PER_KNOT; p++) {
+          /* Deterministic pseudo-random — three independent 32-bit hashes
+             derived from the particle index. Pure integer math, no BigInt. */
+          let h = (k * PARTICLES_PER_KNOT + p + 1) | 0;
+          h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
+          h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
+          h = (h ^ (h >>> 16)) >>> 0;
+          const r1 = (h & 0xffff) / 0xffff;
+
+          let h2 = (h + 0x9e3779b9) | 0;
+          h2 = Math.imul(h2 ^ (h2 >>> 16), 0x45d9f3b) | 0;
+          h2 = (h2 ^ (h2 >>> 16)) >>> 0;
+          const r2 = (h2 & 0xffff) / 0xffff;
+
+          let h3 = (h2 + 0x9e3779b9) | 0;
+          h3 = Math.imul(h3 ^ (h3 >>> 16), 0x45d9f3b) | 0;
+          h3 = (h3 ^ (h3 >>> 16)) >>> 0;
+          const r3 = (h3 & 0xffff) / 0xffff;
+
+          const perp  = (r1 - 0.5) * 2 * SPREAD;
+          const along = r2 * len;
+          const px    = ax + dx * (along / len) + nx * perp;
+          const py    = ay + dy * (along / len) + ny * perp;
+
+          const rad   = (0.4 + r3 * 1.2) * dpr;
+          /* Colour: mix warm and cool randomly */
+          const warm  = r1 > 0.5;
+          oc.fillStyle = warm
+            ? `rgba(255,230,180,${(0.15 + r2 * 0.25).toFixed(3)})`
+            : `rgba(180,210,255,${(0.12 + r3 * 0.22).toFixed(3)})`;
+          oc.beginPath();
+          oc.arc(px, py, rad, 0, Math.PI * 2);
+          oc.fill();
+        }
+      }
+    }
+    oc.restore();
+  }
+
+  /* ── L7: travelling shimmer ────────────────────────────────── */
+  /* Two overlapping dashed trains at different speeds + colours
+     give a complex flowing aurora-like shimmer. */
+  {
+    const shimW = Math.max(1, coreW * 0.6);
+
+    /* Slow blue-white pulse */
+    const a1     = 0.20 + 0.14 * Math.sin(2 * Math.PI * (t / 9.0));
+    const off1   = (t * 18 * dpr) % (22 * dpr + 40 * dpr);
+    oc.save();
+    oc.filter          = "blur(1.5px)";
+    oc.strokeStyle     = `rgba(200,230,255,${a1.toFixed(3)})`;
+    oc.lineWidth       = shimW;
+    oc.lineCap         = "round"; oc.lineJoin = "round";
+    oc.setLineDash([22 * dpr, 40 * dpr]);
+    oc.lineDashOffset  = -off1;
+    _paint();
+    oc.restore();
+
+    /* Fast warm-gold pulse, opposite direction */
+    const a2     = 0.14 + 0.10 * Math.sin(2 * Math.PI * (t / 5.0) + 1.2);
+    const off2   = -(t * 28 * dpr) % (14 * dpr + 55 * dpr);
+    oc.save();
+    oc.filter          = "blur(1px)";
+    oc.strokeStyle     = `rgba(255,220,140,${a2.toFixed(3)})`;
+    oc.lineWidth       = shimW * 0.7;
+    oc.lineCap         = "round"; oc.lineJoin = "round";
+    oc.setLineDash([14 * dpr, 55 * dpr]);
+    oc.lineDashOffset  = off2;
+    _paint();
+    oc.restore();
+  }
+
+  /* ── Composite onto main sky canvas (additive blend) ──────── */
+  ctx.save();
+  ctx.globalAlpha              = 0.78;
+  ctx.globalCompositeOperation = "lighter";
+  ctx.drawImage(off, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha              = 1.0;
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   STARS
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Draw Hipparcos stars as small white dots scaled by magnitude.
+ * size_px = max(0.5, (7.0 - mag) * 0.6)  — skip stars fainter than mag 7.
+ */
+function drawStars(ctx) {
+  if (!skyToggles.stars || !skyStars.length) return;
+
+  const W   = skyCanvas.width;
+  const H   = skyCanvas.height;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.save();
+  for (const star of skyStars) {
+    if (star.mag > 6.5) continue;
+
+    /* Radius in logical px, scaled by DPR so dots stay physically tiny.
+       mag −1.5 → r≈1.6 px    mag 3 → r≈0.9 px    mag 6.5 → r≈0.5 px  */
+    const logicalR = Math.max(0.5, (6.5 - star.mag) * 0.22);
+    const r = logicalR * dpr;
+
+    const { x, y } = sky2px(star.ra_h, star.dec_deg, W, H);
+
+    /* Clip to inner map area */
+    if (x < PAD.left || x > W - PAD.right || y < PAD.top || y > H - PAD.bottom) continue;
+
+    /* Opacity: brighter stars are more opaque; faint stars near transparent */
+    const alpha = star.mag < 2 ? 0.90 : star.mag < 4 ? 0.70 : 0.45;
+
+    /* Colour tint: very bright slightly warm, rest cool white */
+    let col;
+    if (star.mag < 1.0)      col = `rgba(255,245,210,${alpha})`;
+    else if (star.mag < 3.0) col = `rgba(220,230,255,${alpha})`;
+    else                     col = `rgba(200,210,240,${alpha})`;
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CONSTELLATION LINES
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Draw constellation line segments.
+ * Stroke: rgba(140,170,220,0.18), lineWidth 0.5
+ */
+function drawConstellations(ctx) {
+  if (!skyToggles.constellations || !skyConstellations.length) return;
+
+  const W   = skyCanvas.width;
+  const H   = skyCanvas.height;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(100,140,200,0.30)";
+  ctx.lineWidth   = 0.8 * dpr;
+  ctx.lineCap     = "round";
+
+  for (const c of skyConstellations) {
+    for (const seg of c.segments) {
+      const [ra1, dec1, ra2, dec2] = seg;
+
+      /* Skip segments that cross the RA wrap-around (>12 h span) */
+      if (Math.abs(ra1 - ra2) > 12) continue;
+
+      const p1 = sky2px(ra1, dec1, W, H);
+      const p2 = sky2px(ra2, dec2, W, H);
+
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CONSTELLATION LABELS
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Draw constellation name labels at their centroid,
+ * only when the centroid falls inside the visible map area.
+ */
+function drawLabels(ctx) {
+  if (!skyToggles.labels || !skyConstellations.length) return;
+
+  const W = skyCanvas.width;
+  const H = skyCanvas.height;
+
+  ctx.save();
+  ctx.font      = "9px 'Courier New', monospace";
+  ctx.fillStyle = "rgba(180,200,230,0.50)";
+  ctx.textAlign = "center";
+
+  for (const c of skyConstellations) {
+    if (!c.segments.length) continue;
+
+    /* Compute centroid from all segment endpoints */
+    let raSum = 0, decSum = 0, n = 0;
+    for (const [ra1, dec1, ra2, dec2] of c.segments) {
+      raSum  += ra1 + ra2;
+      decSum += dec1 + dec2;
+      n += 2;
+    }
+    const raMean  = raSum / n;
+    const decMean = decSum / n;
+
+    const { x, y } = sky2px(raMean, decMean, W, H);
+
+    /* Only draw if centroid is inside the inner map area */
+    if (x < PAD.left || x > W - PAD.right || y < PAD.top || y > H - PAD.bottom) continue;
+
+    ctx.fillText(c.name, x, y);
+  }
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ALERT DOTS
+───────────────────────────────────────────────────────────── */
+
 /**
  * Render one alert dot.
  * @param {Object}  alert     - alert object
@@ -175,49 +547,105 @@ function drawGrid() {
  */
 function drawDot(alert, highlight) {
   if (!visibleClasses.has(alert.predicted_class)) return;
-  const W = skyCanvas.width, H = skyCanvas.height;
+  const W   = skyCanvas.width, H = skyCanvas.height;
+  const dpr = window.devicePixelRatio || 1;
   const { x, y } = sky2px(alert.ra, alert.dec, W, H);
 
   /* Clip to inner map area */
   if (x < PAD.left || x > W - PAD.right || y < PAD.top || y > H - PAD.bottom) return;
 
   const col = CLASS_COLORS[alert.predicted_class] || CLASS_COLORS["Other"];
-  const r   = highlight ? 7 : 4;
+  /* Scale dot radius with DPR so they stay visually large on HiDPI */
+  const r   = (highlight ? 6 : 4) * dpr;
+
+  /* Soft dark halo so dot stands out against bright stars */
+  skyCtx.save();
+  skyCtx.beginPath();
+  skyCtx.arc(x, y, r + 1.5 * dpr, 0, Math.PI * 2);
+  skyCtx.fillStyle   = "rgba(0,0,0,0.55)";
+  skyCtx.fill();
 
   /* Glow for highlighted dot */
   if (highlight) {
-    skyCtx.save();
     skyCtx.shadowColor = col;
-    skyCtx.shadowBlur  = 14;
+    skyCtx.shadowBlur  = 16 * dpr;
   }
 
   skyCtx.beginPath();
   skyCtx.arc(x, y, r, 0, Math.PI * 2);
   skyCtx.fillStyle   = col;
-  skyCtx.globalAlpha = highlight ? 1.0 : 0.82;
+  skyCtx.globalAlpha = highlight ? 1.0 : 0.92;
   skyCtx.fill();
   skyCtx.globalAlpha = 1.0;
 
   if (highlight) {
     skyCtx.strokeStyle = "#ffffff";
-    skyCtx.lineWidth   = 1.5;
+    skyCtx.lineWidth   = 1.5 * dpr;
     skyCtx.stroke();
-    skyCtx.restore();
 
     /* outer pulse ring */
     skyCtx.beginPath();
-    skyCtx.arc(x, y, r + 5, 0, Math.PI * 2);
+    skyCtx.arc(x, y, r + 5 * dpr, 0, Math.PI * 2);
     skyCtx.strokeStyle = col + "60";
-    skyCtx.lineWidth   = 1;
+    skyCtx.lineWidth   = dpr;
     skyCtx.stroke();
+  }
+  skyCtx.restore();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   FULL REDRAW PIPELINE
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Full redraw in layer order:
+ *   clear → milkyway → grid → stars → constellations → labels → alerts → selection
+ *
+ * @param {number} [ts=0] — requestAnimationFrame timestamp (ms), forwarded to drawMilkyWay
+ */
+function redrawMap(ts) {
+  const ctx = skyCtx;
+
+  /* 1. Background + clear (done inside drawGrid) */
+  drawGrid();
+
+  /* 2. Milky Way — receives timestamp for shimmer animation */
+  drawMilkyWay(ctx, ts || 0);
+
+  /* 3. Stars */
+  drawStars(ctx);
+
+  /* 4. Constellation lines */
+  drawConstellations(ctx);
+
+  /* 5. Constellation labels */
+  drawLabels(ctx);
+
+  /* 6+7. Alert dots + selection highlight */
+  for (const alert of allAlerts) {
+    drawDot(alert, alert.object_id === selectedOid);
   }
 }
 
-/** Full redraw: grid then all dots. */
-function redrawMap() {
-  drawGrid();
-  for (const alert of allAlerts) {
-    drawDot(alert, alert.object_id === selectedOid);
+/* ── Milky Way animation loop ─────────────────────────────────────
+   Runs only while the Milky Way toggle is on.
+   requestAnimationFrame keeps the shimmer smooth; when the toggle
+   is turned off the loop stops automatically.
+─────────────────────────────────────────────────────────────────── */
+function _startMWAnimation() {
+  if (_mwAnimFrame !== null) return;        // already running
+  function _frame(ts) {
+    if (!skyToggles.milkyway) { _mwAnimFrame = null; return; }
+    redrawMap(ts);
+    _mwAnimFrame = requestAnimationFrame(_frame);
+  }
+  _mwAnimFrame = requestAnimationFrame(_frame);
+}
+
+function _stopMWAnimation() {
+  if (_mwAnimFrame !== null) {
+    cancelAnimationFrame(_mwAnimFrame);
+    _mwAnimFrame = null;
   }
 }
 
@@ -580,12 +1008,59 @@ async function loadHistory() {
   }
 }
 
+/**
+ * Fetch the three sky-asset JSON files in parallel.
+ * Gracefully degrades — missing files leave the corresponding array empty.
+ */
+async function loadSkyAssets() {
+  const base = "/static/data/";
+  const [starsRes, constsRes, mwRes] = await Promise.allSettled([
+    fetch(base + "stars.json"),
+    fetch(base + "constellations.json"),
+    fetch(base + "milkyway.json"),
+  ]);
+
+  if (starsRes.status === "fulfilled" && starsRes.value.ok) {
+    try {
+      skyStars = await starsRes.value.json();
+      console.log(`[rubin-skymap] Loaded ${skyStars.length} stars`);
+    } catch (e) {
+      console.warn("[rubin-skymap] Failed to parse stars.json:", e);
+    }
+  } else {
+    console.warn("[rubin-skymap] stars.json not available — sky will show without background stars");
+  }
+
+  if (constsRes.status === "fulfilled" && constsRes.value.ok) {
+    try {
+      skyConstellations = await constsRes.value.json();
+      console.log(`[rubin-skymap] Loaded ${skyConstellations.length} constellations`);
+    } catch (e) {
+      console.warn("[rubin-skymap] Failed to parse constellations.json:", e);
+    }
+  } else {
+    console.warn("[rubin-skymap] constellations.json not available");
+  }
+
+  if (mwRes.status === "fulfilled" && mwRes.value.ok) {
+    try {
+      skyMilkyway = await mwRes.value.json();
+      console.log(`[rubin-skymap] Loaded Milky Way (${skyMilkyway.points.length} pts)`);
+    } catch (e) {
+      console.warn("[rubin-skymap] Failed to parse milkyway.json:", e);
+    }
+  } else {
+    console.warn("[rubin-skymap] milkyway.json not available");
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════
-   FILTERS
+   FILTERS (class legend + sky toggles)
 ══════════════════════════════════════════════════════════════ */
 
 function initFilters() {
-  document.querySelectorAll("#legend-bar input[type=checkbox]").forEach(cb => {
+  /* Class filter checkboxes */
+  document.querySelectorAll("#legend-bar input[type=checkbox][data-class]").forEach(cb => {
     const item = cb.closest(".legend-item");
     cb.addEventListener("change", () => {
       const cls = cb.dataset.class;
@@ -600,6 +1075,29 @@ function initFilters() {
       redrawMap();
     });
   });
+
+  /* Sky layer toggle checkboxes */
+  const toggleMap = {
+    "toggle-milkyway":       "milkyway",
+    "toggle-stars":          "stars",
+    "toggle-constellations": "constellations",
+    "toggle-labels":         "labels",
+  };
+  for (const [id, key] of Object.entries(toggleMap)) {
+    const cb = document.getElementById(id);
+    if (!cb) continue;
+    /* Sync initial state from HTML checked attribute */
+    skyToggles[key] = cb.checked;
+    cb.addEventListener("change", () => {
+      skyToggles[key] = cb.checked;
+      if (key === "milkyway") {
+        if (cb.checked) _startMWAnimation();
+        else { _stopMWAnimation(); redrawMap(); }
+      } else {
+        redrawMap();
+      }
+    });
+  }
 
   /* Search box */
   const searchEl = document.getElementById("feed-search");
@@ -689,6 +1187,50 @@ function initMapInteraction() {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   REAL-TIME UTC CLOCK
+══════════════════════════════════════════════════════════════ */
+
+/**
+ * Start the real-time UTC clock in the header.
+ * Ticks every 500 ms for smooth colon blink; updates DOM strings once per second.
+ */
+function initClock() {
+  const dateEl = document.getElementById("clock-date");
+  const timeEl = document.getElementById("clock-time");
+  if (!dateEl || !timeEl) return;
+
+  /* Pad to two digits */
+  const p = n => String(n).padStart(2, "0");
+
+  let lastSec = -1;
+
+  function tick() {
+    const now = new Date();
+    const sec = now.getUTCSeconds();
+
+    /* Update time string once per second */
+    if (sec !== lastSec) {
+      lastSec = sec;
+
+      /* Date: e.g. "2025-09-16" */
+      const dateStr = `${now.getUTCFullYear()}-${p(now.getUTCMonth() + 1)}-${p(now.getUTCDate())}`;
+      dateEl.textContent = dateStr;
+
+      /* Time: HH:MM:SS — colon blinks on even seconds */
+      const sep  = sec % 2 === 0 ? ":" : "·";
+      timeEl.textContent = `${p(now.getUTCHours())}${sep}${p(now.getUTCMinutes())}${sep}${p(sec)}`;
+
+      /* brief accent colour flash each second */
+      timeEl.classList.add("tick");
+      setTimeout(() => timeEl.classList.remove("tick"), 120);
+    }
+  }
+
+  tick();
+  setInterval(tick, 500);
+}
+
+/* ══════════════════════════════════════════════════════════════
    BOOT
 ══════════════════════════════════════════════════════════════ */
 
@@ -697,6 +1239,7 @@ document.addEventListener("DOMContentLoaded", () => {
   skyCtx    = skyCanvas.getContext("2d");
   tooltip   = document.getElementById("map-tooltip");
 
+  initClock();
   initFilters();
   resizeCanvas();
   initMapInteraction();
@@ -708,7 +1251,11 @@ document.addEventListener("DOMContentLoaded", () => {
     resizeCanvas();
   });
 
-  loadHistory().then(() => connectWS());
+  /* Load sky assets, start shimmer animation, load history, connect WS */
+  loadSkyAssets().then(() => {
+    _startMWAnimation();                  // begins the shimmer rAF loop
+    return loadHistory();
+  }).then(() => connectWS());
 });
 
 /* ══════════════════════════════════════════════════════════════

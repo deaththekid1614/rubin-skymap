@@ -34,6 +34,11 @@
       </div>
     </div>
     <div id="header-right">
+      <div id="clock-chip">
+        <span id="clock-date"></span>
+        <span id="clock-time"></span>
+        <span id="clock-utc">UTC</span>
+      </div>
       <span id="conn-status" class="conn-closed">
         <span class="conn-dot"></span>
         <span id="conn-label">Disconnected</span>
@@ -83,6 +88,30 @@
       <input type="checkbox" data-class="Other" checked />
       <span class="legend-swatch" style="background:#868e96"></span>Other
       <span class="legend-count" id="count-Other">0</span>
+    </label>
+
+    <!-- ── Sky layer toggles ── -->
+    <span class="sky-toggles-sep"></span>
+    <span class="legend-label sky-toggle-label">SKY:</span>
+    <label class="sky-toggle-item">
+      <input type="checkbox" id="toggle-milkyway" checked />
+      <span class="sky-toggle-track"></span>
+      Milky Way
+    </label>
+    <label class="sky-toggle-item">
+      <input type="checkbox" id="toggle-stars" checked />
+      <span class="sky-toggle-track"></span>
+      Stars
+    </label>
+    <label class="sky-toggle-item">
+      <input type="checkbox" id="toggle-constellations" checked />
+      <span class="sky-toggle-track"></span>
+      Constellations
+    </label>
+    <label class="sky-toggle-item">
+      <input type="checkbox" id="toggle-labels" />
+      <span class="sky-toggle-track"></span>
+      Labels
     </label>
   </div>
 
