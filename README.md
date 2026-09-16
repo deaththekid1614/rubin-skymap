@@ -346,7 +346,3 @@ All config lives in `configs/base.yaml` (defaults) overridden by `configs/dev.ya
 - [x] `RUBIN_SKYMAP_ENV` env var selects config overlay (default: `dev`)
 
 ---
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE.md).
