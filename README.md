@@ -349,4 +349,4 @@ All config lives in `configs/base.yaml` (defaults) overridden by `configs/dev.ya
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE.md).
