@@ -399,3 +399,6 @@ The legend bar includes four layer toggles:
 
 ---
 
+## 📄 License
+
+MIT — see [LICENSE](LICENSE.md).
